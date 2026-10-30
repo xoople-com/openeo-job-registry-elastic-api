@@ -4,8 +4,7 @@ import { AuthType } from '../models/authtypes.enum';
 import { BearerGuard } from '../bearer/bearer.guard';
 import { ConfigService } from '../../config/config/config.service';
 import { ConfigModule } from '../../config/config.module';
-import { BaseClient } from 'openid-client';
-import { buildBearerClient } from '../bearer/bearer.strategy';
+import { Issuer } from 'openid-client';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -30,6 +29,24 @@ describe('AuthService', () => {
     expect(service).toBeDefined();
   });
 
+  it('uses the selected token validator for Entra health checks', async () => {
+    const validator = jest.fn().mockResolvedValue(true);
+    service.setTokenValidator(validator);
+    expect(await service.isTokenActive('token')).toBe(true);
+    expect(validator).toHaveBeenCalledWith('token');
+    jest.spyOn(configService, 'get').mockReturnValue(AuthType.ENTRA);
+    expect(service.getAuthGuard(undefined)).toBeInstanceOf(BearerGuard);
+  });
+
+  it('preserves introspection health checks in bearer mode', async () => {
+    const issuer = new Issuer({ issuer: 'https://example.com' });
+    const client = new issuer.Client({ client_id: 'test-client' });
+    jest
+      .spyOn(client, 'introspect')
+      .mockResolvedValue({ active: true, scope: '' });
+    service.setAuthClient(client);
+    expect(await service.isTokenActive('token')).toBe(true);
+  });
   it('should return the correct authentication guard based on the config', async () => {
     // Bearer type
     jest.spyOn(configService, 'get').mockReturnValueOnce(AuthType.BEARER);

@@ -65,6 +65,33 @@ export const schema: convict.Schema<AppConfig> = {
         env: 'OIDC_CLIENT_SECRET',
         default: 'client_secret',
         arg: 'oidc_client_secret',
+        sensitive: true,
+      },
+    },
+    entra: {
+      issuer: {
+        doc: 'Tenant-specific Entra v2 access-token issuer',
+        format: 'String',
+        default: '',
+        env: 'ENTRA_ISSUER',
+      },
+      audience: {
+        doc: 'Exact access-token audience (normally the API application UUID for v2 tokens)',
+        format: 'String',
+        default: '',
+        env: 'ENTRA_AUDIENCE',
+      },
+      roles: {
+        doc: 'Comma separated application roles; at least one must be present',
+        format: 'String',
+        default: 'JobRegistry.Access',
+        env: 'ENTRA_ROLES',
+      },
+      clientIds: {
+        doc: 'Comma separated allowed caller application IDs (azp claim)',
+        format: 'String',
+        default: '',
+        env: 'ENTRA_CLIENT_IDS',
       },
     },
   },
@@ -89,6 +116,13 @@ export const schema: convict.Schema<AppConfig> = {
       default: 1000,
       env: 'DB_MAX_RESULTS',
       arg: 'db_max_results',
+    },
+    apiKey: {
+      doc: 'Encoded Elasticsearch API key; requires HTTPS hosts',
+      format: 'String',
+      default: '',
+      env: 'DB_API_KEY',
+      sensitive: true,
     },
   },
   cache: {

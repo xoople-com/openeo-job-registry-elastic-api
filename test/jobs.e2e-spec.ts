@@ -5,12 +5,12 @@ import { readJobFile } from './utils/io';
 import { JobsModule } from '../src/jobs/jobs.module';
 import { Job } from '../src/jobs/models/job.dto';
 import { sleep } from './utils';
-import { ElasticsearchService } from '@nestjs/elasticsearch';
+import { Client } from '@elastic/elasticsearch';
 import { ConfigService } from '../src/config/config/config.service';
 
 describe('E2E - Jobs', () => {
   let app: INestApplication;
-  let esService: ElasticsearchService;
+  let esService: Client;
   let configService: ConfigService;
 
   const jobs: Job[] = [];
@@ -68,7 +68,7 @@ describe('E2E - Jobs', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    esService = moduleFixture.get<ElasticsearchService>(ElasticsearchService);
+    esService = moduleFixture.get<Client>(Client);
     configService = moduleFixture.get<ConfigService>(ConfigService);
     await app.init();
   });
@@ -141,11 +141,9 @@ describe('E2E - Jobs', () => {
     // Execute proper cleanup of the records in the database
     for (const job of jobs) {
       await esService.deleteByQuery({
-        body: {
-          query: {
-            match: {
-              job_id: job.job_id,
-            },
+        query: {
+          match: {
+            job_id: job.job_id,
           },
         },
         index: configService.get('database.jobsIdx'),

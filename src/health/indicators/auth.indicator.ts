@@ -1,6 +1,11 @@
 import { HealthIndicator, HealthIndicatorResult } from '@nestjs/terminus';
-import { Headers, Injectable } from '@nestjs/common';
-import { BearerStrategy } from '../../auth/bearer/bearer.strategy';
+import {
+  ForbiddenException,
+  Headers,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthService } from '../../auth/services/auth.service';
 
 enum TokenStatus {
@@ -37,13 +42,22 @@ export class AuthIndicator extends HealthIndicator {
       }
 
       // Check if token is still valid
-      const { active } = await this.authService
-        .getAuthClient()
-        .introspect(bearer[1]);
-      if (!active) {
-        return TokenStatus.EXPIRED;
+      try {
+        return (await this.authService.isTokenActive(bearer[1]))
+          ? TokenStatus.OK
+          : TokenStatus.EXPIRED;
+      } catch (error) {
+        if (
+          error instanceof UnauthorizedException ||
+          error instanceof ForbiddenException
+        ) {
+          return TokenStatus.INVALID;
+        }
+        new Logger(AuthIndicator.name).error(
+          'Authentication health check unavailable',
+        );
+        throw error;
       }
-      return TokenStatus.OK;
     }
   }
 }

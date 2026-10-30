@@ -3,6 +3,9 @@
 
 name: Build and Deploy
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ "main" ]
@@ -17,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18.x]
+        node-version: [24.x]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
     steps:
     - uses: actions/checkout@v3
@@ -26,12 +29,40 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-    - run: npm install
+    - run: npm ci
     - run: npm run test:cov
     - run: npm run build
 
+  elastic-contract:
+    runs-on: ubuntu-latest
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:9.5.1
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl --fail http://localhost:9200/_cluster/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run test:e2e -- --runInBand elastic-cloud.e2e-spec.ts
+        env:
+          DB_HOSTS: http://localhost:9200
+      - run: docker build -t ejr-azure-test .
+
   release:
-    needs: build
+    needs: [build, elastic-contract]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -42,12 +73,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Use Node.js 18.x
+      - name: Use Node.js 24.x
         uses: actions/setup-node@v3
         with:
-          node-version: 18.x
+          node-version: 24.x
           cache: 'npm'
-      - run: npm install
+      - run: npm ci
       - id: before
         run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
       - run: npm run release
@@ -82,10 +113,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js 18.x
+      - name: Use Node.js 24.x
         uses: actions/setup-node@v4
         with:
-          node-version: 18.x
+          node-version: 24.x
           cache: npm
 
       - name: Validate version
@@ -99,7 +130,7 @@ jobs:
       - name: Update package.json
         run: npm pkg set version="${{ needs.release.outputs.docker_version }}"
 
-      - run: npm install
+      - run: npm install --package-lock-only --ignore-scripts
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3

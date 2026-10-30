@@ -6,6 +6,8 @@ import { BearerStrategy, buildBearerClient } from './bearer/bearer.strategy';
 import { AuthService } from './services/auth.service';
 import { CachingModule } from '../caching/caching.module';
 import { CachingService } from '../caching/services/cache.service';
+import { AuthType } from './models/authtypes.enum';
+import { buildEntraStrategy } from './entra/entra.strategy';
 
 const BearerStrategyFactory = {
   provide: 'BearerStrategy',
@@ -14,6 +16,14 @@ const BearerStrategyFactory = {
     authService: AuthService,
     cachingService: CachingService,
   ) => {
+    if (configService.get('auth.type') === AuthType.ENTRA) {
+      const strategy = await buildEntraStrategy(configService);
+      authService.setTokenValidator(async (token) => {
+        await strategy.validate(token);
+        return true;
+      });
+      return strategy;
+    }
     const client = await buildBearerClient(configService); // secret sauce! build the dynamic client before injecting it into the strategy for use in the constructor super call.
     const roles = String(configService.get('auth.roles') ?? '')
       .split(',')

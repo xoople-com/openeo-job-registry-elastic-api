@@ -97,7 +97,7 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
     let attempt = 1;
     let introspectResult;
 
-    this.logger.debug(`Start verification of token: ${token}`);
+    this.logger.debug('Starting bearer token verification');
     while (attempt <= attempts) {
       this.logger.debug(`Inspecting token (${attempt}/${attempts})`);
       introspectResult = await this.introspectToken(token);
@@ -143,8 +143,8 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
               this.logger.warn(
                 `Access denied for user ${payload.sub}
                  : token has none of the required roles [${this.requiredRoles.join(
-                  ', ',
-                )}]`,
+                   ', ',
+                 )}]`,
               );
               return {
                 error: new ForbiddenException(),
@@ -159,9 +159,6 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
             info: null,
           };
         } else {
-          this.logger.debug(
-            `Introspection response: ${JSON.stringify(response)}`,
-          );
           this.logger.error(`Token is not active`);
           // We pass it through info to indicate that the token is invalid and trigger a fail vs an error.
           // See strategy.js for more information on the implementation
@@ -172,7 +169,7 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
           };
         }
       } catch (e) {
-        this.logger.error(`An error occurred while verifying token: ${e}`);
+        this.logger.error('An error occurred while verifying token');
         return {
           error: VERIFICATION_ERRORS.GENERAL,
           user: null,

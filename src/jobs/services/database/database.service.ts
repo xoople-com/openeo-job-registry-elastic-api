@@ -1,9 +1,8 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { ElasticsearchService } from '@nestjs/elasticsearch';
+import { Client, errors } from '@elastic/elasticsearch';
 import { ExtendedPatchJob, Job } from '../../models/job.dto';
 import { ConfigService } from '../../../config/config/config.service';
 import { UtilsService } from '../../../utils/services/utils/utils.service';
-import { ApiResponse } from '@elastic/elasticsearch';
 import { Pagination } from '../../models/pagination.dto';
 
 @Injectable()
@@ -12,7 +11,7 @@ export class DatabaseService {
 
   constructor(
     private configService: ConfigService,
-    private elasticSearch: ElasticsearchService,
+    private elasticSearch: Client,
     private logger: Logger,
   ) {
     this.JOBS_INDEX = this.configService.get('database.jobsIdx');
@@ -28,25 +27,17 @@ export class DatabaseService {
    */
   public async saveJobs(job: Job): Promise<Job> {
     try {
-      const response: ApiResponse<Record<string, any>> =
-        await this.elasticSearch.index({
-          index: this.JOBS_INDEX,
-          body: job,
-        });
+      const response = await this.elasticSearch.index({
+        index: this.JOBS_INDEX,
+        document: job,
+      });
 
-      if (response.statusCode !== 201) {
-        throw new Error(
-          `Could not save jobs to elasticsearch: ${JSON.stringify(
-            response.body,
-          )}`,
-        );
+      if (response.result !== 'created') {
+        throw new Error('Elasticsearch did not create the job document');
       }
       return job;
     } catch (error: any) {
-      let message = error.toString();
-      if (error.constructor.name === 'ResponseError') {
-        message = `${error.meta.body.error.type} - ${error.meta.body.error.reason}`;
-      }
+      const message = this.databaseError(error);
       this.logger.error(
         `Could not store job ${job.job_id} in elasticsearch: ${message}`,
       );
@@ -115,7 +106,6 @@ export class DatabaseService {
     deleted?: boolean,
     idsOnly?: boolean,
   ): Promise<Pagination> {
-    let jobs: Job[] = [];
     const size = limit || this.configService.get('database.maxResults');
     const from = (page || 0) * size;
 
@@ -127,29 +117,34 @@ export class DatabaseService {
       query = this.addDeletedFilter(query);
     }
     // Perform initial search
-    const { body } = await this.elasticSearch.search({
-      index: this.JOBS_INDEX,
-      track_total_hits: false,
-      body: {
-        ...query,
-      },
-      from,
-      size,
-      sort: ['created:desc', '_id:asc'],
-    });
+    try {
+      const body = await this.elasticSearch.search<Job>({
+        index: this.JOBS_INDEX,
+        track_total_hits: false,
+        body: { ...query },
+        from,
+        size,
+        sort: [{ created: 'desc' }, { job_id: 'asc' }, { backend_id: 'asc' }],
+      });
 
-    jobs = [
-      ...jobs,
-      ...body.hits.hits.map((h) => (idsOnly ? h._id : h._source)),
-    ];
-
-    return {
-      jobs,
-      pagination: {
-        previous: page > 0 ? { size, page: page - 1 } : null,
-        next: body.hits.hits.length === size ? { size, page: page + 1 } : null,
-      },
-    };
+      return {
+        jobs: idsOnly
+          ? body.hits.hits.map((hit) => hit._id)
+          : body.hits.hits.map((hit) => hit._source),
+        pagination: {
+          previous: page > 0 ? { size, page: page - 1 } : null,
+          next:
+            body.hits.hits.length === size ? { size, page: page + 1 } : null,
+        },
+      };
+    } catch (error) {
+      const message = this.databaseError(error);
+      this.logger.error(`Could not query jobs in elasticsearch: ${message}`);
+      throw new HttpException(
+        `Could not query jobs in database: ${message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   /**
@@ -159,23 +154,18 @@ export class DatabaseService {
    */
   async patchJob(docId: string, update: ExtendedPatchJob): Promise<Job> {
     try {
-      await this.elasticSearch.update({
+      await this.elasticSearch.update<Job, ExtendedPatchJob>({
         index: this.JOBS_INDEX,
         id: docId,
-        body: {
-          doc: update,
-        },
+        doc: update,
       });
-      const updated = await this.elasticSearch.get({
+      const updated = await this.elasticSearch.get<Job>({
         index: this.JOBS_INDEX,
         id: docId,
       });
-      return updated.body._source as Job;
+      return updated._source;
     } catch (error: any) {
-      let message = error.toString();
-      if (error.constructor.name === 'ResponseError') {
-        message = `${error.meta.body.error.type} - ${error.meta.body.error.reason}`;
-      }
+      const message = this.databaseError(error);
       this.logger.error(
         `Could not update job ${docId} in elasticsearch: ${message}`,
       );
@@ -184,6 +174,13 @@ export class DatabaseService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  private databaseError(error: unknown): string {
+    // Transport errors can carry request headers, including the Elastic API key.
+    return error instanceof errors.ResponseError
+      ? `Elasticsearch request failed (HTTP ${error.statusCode})`
+      : 'Elasticsearch request failed';
   }
 
   /**

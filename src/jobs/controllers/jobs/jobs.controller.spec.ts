@@ -1,8 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JobsController } from './jobs.controller';
 import { ConfigModule } from '../../../config/config.module';
-import { ElasticsearchModule } from '@nestjs/elasticsearch';
-import { ConfigService } from '../../../config/config/config.service';
+import { DatabaseModule } from '../../../database/database.module';
 import { DatabaseService } from '../../services/database/database.service';
 import { Logger } from '@nestjs/common';
 import { JOB } from '../../mocks/job.mock';
@@ -14,20 +13,7 @@ describe('JobsController', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        ConfigModule,
-        ElasticsearchModule.registerAsync({
-          imports: [ConfigModule],
-          useFactory: async (configService: ConfigService) => ({
-            nodes: configService
-              .get('database.hosts')
-              .split(',')
-              .map((h) => h.trim()),
-          }),
-          inject: [ConfigService],
-        }),
-        CachingModule,
-      ],
+      imports: [ConfigModule, DatabaseModule, CachingModule],
       controllers: [JobsController],
       providers: [DatabaseService, Logger],
     }).compile();

@@ -1,177 +1,126 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { DatabaseService } from './database.service';
-import {
-  ElasticsearchModule,
-  ElasticsearchService,
-} from '@nestjs/elasticsearch';
-import { ConfigModule } from '../../../config/config.module';
-import { ConfigService } from '../../../config/config/config.service';
-import { JOB } from '../../mocks/job.mock';
-import { TransportRequestCallback } from '@elastic/elasticsearch/lib/Transport';
-import { QUERIES } from '../../mocks/query.mock';
+import { Test } from '@nestjs/testing';
+import { Client } from '@elastic/elasticsearch';
 import { Logger } from '@nestjs/common';
-import { ResponseError } from '@elastic/elasticsearch/lib/errors';
+import { DatabaseService } from './database.service';
+import { ConfigModule } from '../../../config/config.module';
+import { JOB } from '../../mocks/job.mock';
+import { QUERIES } from '../../mocks/query.mock';
+import { UtilsService } from '../../../utils/services/utils/utils.service';
 
 describe('DatabaseService', () => {
   let service: DatabaseService;
-  let esService: ElasticsearchService;
+  const client = {
+    index: jest.fn(),
+    update: jest.fn(),
+    get: jest.fn(),
+    search: jest.fn(),
+  };
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        ConfigModule,
-        ElasticsearchModule.registerAsync({
-          imports: [ConfigModule],
-          useFactory: async (configService: ConfigService) => ({
-            nodes: configService
-              .get('database.hosts')
-              .split(',')
-              .map((h) => h.trim()),
-          }),
-          inject: [ConfigService],
-        }),
+    const module = await Test.createTestingModule({
+      imports: [ConfigModule],
+      providers: [
+        DatabaseService,
+        Logger,
+        { provide: Client, useValue: client },
       ],
-      providers: [DatabaseService, Logger],
     }).compile();
-
-    service = module.get<DatabaseService>(DatabaseService);
-    esService = module.get<ElasticsearchService>(ElasticsearchService);
+    service = module.get(DatabaseService);
   });
 
-  afterEach(() => {
-    jest.resetAllMocks();
-    jest.clearAllMocks();
-  });
+  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => jest.resetAllMocks());
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
-  it('should save jobs in bulk', async () => {
-    const es = jest.spyOn(esService, 'index').mockReturnValueOnce({
-      statusCode: 201,
-      body: {
-        items: [
-          {
-            id: 1,
-          },
-          {
-            id: 2,
-          },
-        ],
-      },
-    } as any);
+  it('stores the existing job document and preserves the response', async () => {
+    client.index.mockResolvedValue({ result: 'created' });
     expect(await service.saveJobs(JOB)).toEqual(JOB);
-    expect(es).toBeCalledTimes(1);
-  });
-
-  it('should throw an error if the bulk request fails', async () => {
-    let es = jest.spyOn(esService, 'index').mockReturnValueOnce({
-      statusCode: 400,
-    } as any);
-    await expect(service.saveJobs(JOB)).rejects.toThrowError();
-
-    es = jest.spyOn(esService, 'index').mockImplementationOnce(() => {
-      throw Error('No can do!');
+    expect(client.index).toHaveBeenCalledWith({
+      index: 'openeo-jobs-dev',
+      document: JOB,
     });
-    await expect(service.patchJob(JOB.job_id, JOB)).rejects.toThrowError();
-
-    expect(es).toBeCalledTimes(1);
   });
 
-  it('should throw an error if the update job fails', async () => {
-    let es = jest.spyOn(esService, 'update').mockReturnValueOnce({
-      statusCode: 400,
-    } as any);
-    await expect(service.patchJob(JOB.job_id, JOB)).rejects.toThrowError();
+  it('surfaces failed writes without leaking transport credentials', async () => {
+    client.index.mockRejectedValue(new Error('Authorization: ApiKey secret'));
+    await expect(service.saveJobs(JOB)).rejects.toThrow(
+      'Could not store jobs in database: Elasticsearch request failed',
+    );
+    client.index.mockResolvedValue({ result: 'noop' });
+    await expect(service.saveJobs(JOB)).rejects.toThrow();
+  });
 
-    es = jest.spyOn(esService, 'update').mockImplementationOnce(() => {
-      throw Error('No can do!');
+  it('patches and returns the original job response shape', async () => {
+    client.update.mockResolvedValue({ result: 'updated' });
+    client.get.mockResolvedValue({ _source: JOB });
+    expect(await service.patchJob('document-id', JOB)).toEqual(JOB);
+    expect(client.update).toHaveBeenCalledWith({
+      index: 'openeo-jobs-dev',
+      id: 'document-id',
+      doc: JOB,
     });
-    await expect(service.patchJob(JOB.job_id, JOB)).rejects.toThrowError();
-
-    expect(es).toBeCalledTimes(2);
   });
 
-  it('should patch the job and retrieve the updated result', async () => {
-    const esUpdate = jest
-      .spyOn(esService, 'update')
-      .mockReturnValueOnce(undefined);
-    const esGet = jest.spyOn(esService, 'get').mockReturnValueOnce({
-      body: {
-        _source: JOB,
+  it('surfaces failed updates', async () => {
+    client.update.mockRejectedValue(new Error('request with credentials'));
+    await expect(service.patchJob('document-id', JOB)).rejects.toThrow(
+      'Could not update jobs in database: Elasticsearch request failed',
+    );
+  });
+
+  it('preserves query filters and pagination without restricted _id sorting', async () => {
+    client.search.mockResolvedValue({
+      hits: { hits: [{ _id: 'doc', _source: JOB }] },
+    });
+    const result = await service.executeJobQuery(QUERIES[1].input, 1, 1);
+    expect(result).toEqual({
+      jobs: [JOB],
+      pagination: {
+        previous: { size: 1, page: 0 },
+        next: { size: 1, page: 2 },
       },
-      abort: undefined,
-    } as TransportRequestCallback);
-
-    expect(await service.patchJob('foobar', JOB)).toEqual(JOB);
-    expect(esUpdate).toBeCalledTimes(1);
-    expect(esGet).toBeCalledTimes(1);
+    });
+    expect(client.search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 1,
+        size: 1,
+        body: service.addDeletedFilter(QUERIES[1].input),
+        sort: [{ created: 'desc' }, { job_id: 'asc' }, { backend_id: 'asc' }],
+      }),
+    );
+    expect(
+      await service.executeJobQuery(QUERIES[1].input, 0, 10, true, true),
+    ).toEqual({ jobs: ['doc'], pagination: { previous: null, next: null } });
+    expect(client.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: QUERIES[1].input,
+      }),
+    );
   });
 
-  it('should not retry getting the job ID if the request returned an ID', async () => {
-    const getJobID = jest
-      .spyOn(service, 'queryJobs')
-      .mockResolvedValue({ jobs: ['foobar_id'], pagination: {} });
-
-    const id = await service.getJobDocId('foobar');
-    expect(getJobID).toBeCalledTimes(1);
-    expect(id).toEqual('foobar_id');
+  it('rejects empty queries and surfaces connection errors', async () => {
+    await expect(service.executeJobQuery({})).rejects.toThrow('empty query');
+    client.search.mockRejectedValue(new Error('connection failed'));
+    await expect(service.queryJobs(QUERIES[1].input)).rejects.toThrow(
+      'Elasticsearch request failed',
+    );
   });
 
-  it('should retry getting the job ID if the request failed', async () => {
-    const getJobID = jest
-      .spyOn(service, 'executeJobQuery')
-      .mockResolvedValue({ jobs: [], pagination: {} });
-
-    const id = await service.getJobDocId('foobar');
-    expect(getJobID).toBeCalledTimes(5);
-    expect(id).toBeUndefined();
+  it('returns matching document IDs and retries missing jobs', async () => {
+    client.search.mockResolvedValue({
+      hits: { hits: [{ _id: 'doc', _source: JOB }] },
+    });
+    expect(await service.getJobDocId(JOB.job_id)).toBe('doc');
+    expect(client.search).toHaveBeenCalledTimes(1);
+    client.search.mockClear();
+    client.search.mockResolvedValue({ hits: { hits: [] } });
+    jest.spyOn(UtilsService, 'sleep').mockResolvedValue();
+    expect(await service.getJobDocId('missing')).toBeUndefined();
+    expect(client.search).toHaveBeenCalledTimes(5);
   });
 
-  it('should add the deleted filter by default when querying jobs', async () => {
-    jest.spyOn(esService, 'search').mockReturnValue({
-      body: {
-        hits: {
-          hits: [],
-          total: {
-            value: 0,
-          },
-        },
-      },
-    } as any);
-    const deletedFilter = jest
-      .spyOn(service, 'addDeletedFilter')
-      .mockReturnValueOnce(QUERIES[1].input);
-
-    await service.queryJobs(QUERIES[1].input);
-    expect(deletedFilter).toBeCalledTimes(5);
-  });
-
-  it('should not add the deleted filter when querying jobs and deleted flag is set to true', async () => {
-    jest.spyOn(esService, 'search').mockReturnValue({
-      body: {
-        hits: {
-          hits: [],
-          total: {
-            value: 0,
-          },
-        },
-      },
-    } as any);
-    const deletedFilter = jest
-      .spyOn(service, 'addDeletedFilter')
-      .mockReturnValueOnce(QUERIES[1].input);
-
-    await service.queryJobs(QUERIES[1].input, 0, 1, true);
-    expect(deletedFilter).toBeCalledTimes(0);
-  });
-  it('should correctly update the query to filter out deleted documents', async () => {
-    let count = 1;
+  it('preserves all existing deletion filter cases', () => {
     for (const query of QUERIES) {
-      console.log(`Testing query ${count}`);
       expect(service.addDeletedFilter(query.input)).toEqual(query.output);
-      count++;
     }
   });
 });
