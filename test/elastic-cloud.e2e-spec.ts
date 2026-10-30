@@ -57,7 +57,11 @@ describe('Elasticsearch 9 contract', () => {
       .expect(201)
       .expect(second);
     await client.indices.refresh({ index });
-    const query = { query: { term: { backend_id: JOB.backend_id } } };
+    const query = {
+      query: {
+        bool: { filter: [{ term: { backend_id: JOB.backend_id } }] },
+      },
+    };
     await request(app.getHttpServer())
       .post('/jobs/search/paginated?size=1&page=0')
       .send(query)

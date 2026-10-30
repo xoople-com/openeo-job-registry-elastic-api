@@ -84,7 +84,7 @@ describe('DatabaseService', () => {
         from: 1,
         size: 1,
         body: service.addDeletedFilter(QUERIES[1].input),
-        sort: ['created:desc', 'job_id:asc', 'backend_id:asc'],
+        sort: [{ created: 'desc' }, { job_id: 'asc' }, { backend_id: 'asc' }],
       }),
     );
     expect(

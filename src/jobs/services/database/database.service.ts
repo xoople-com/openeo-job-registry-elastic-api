@@ -124,7 +124,7 @@ export class DatabaseService {
         body: { ...query },
         from,
         size,
-        sort: ['created:desc', 'job_id:asc', 'backend_id:asc'],
+        sort: [{ created: 'desc' }, { job_id: 'asc' }, { backend_id: 'asc' }],
       });
 
       return {
