@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { BearerStrategy, VERIFICATION_ERRORS } from './bearer.strategy';
 import { CachingService } from '../../caching/services/cache.service';
 
@@ -6,7 +7,9 @@ describe('BearerStrategy', () => {
     introspect: (token: string) => Promise<any>,
   };
 
-  const mockCachingService: jest.Mocked<Pick<CachingService, 'checkCache' | 'store'>> = {
+  const mockCachingService: jest.Mocked<
+    Pick<CachingService, 'checkCache' | 'store'>
+  > = {
     checkCache: jest.fn(),
     store: jest.fn(),
   };
@@ -112,5 +115,85 @@ describe('BearerStrategy', () => {
     expect(mockCachingService.store).toBeCalledTimes(0);
     expect(verified.mock.calls.length).toEqual(1);
     expect(verified.mock.calls[0]).toEqual([null, {}, null]);
+  });
+
+  describe('with required roles', () => {
+    const buildToken = (payload: any) =>
+      [
+        Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url'),
+        Buffer.from(JSON.stringify(payload)).toString('base64url'),
+        'signature',
+      ].join('.');
+
+    const payload = {
+      sub: '22e2e4bf-4afc-4e2f-829a-248db17c3a15',
+      realm_access: {
+        roles: ['rw-role', 'offline_access', 'uma_authorization'],
+      },
+    };
+
+    const verifyWithRoles = async (token: string) => {
+      mockCachingService.checkCache.mockResolvedValueOnce(undefined);
+      jest.spyOn(mockClient, 'introspect').mockResolvedValue({ active: true });
+      const strategy = new BearerStrategy(
+        mockClient,
+        mockCachingService as any,
+        ['rw-role'],
+      );
+      const warnSpy = jest
+        .spyOn(strategy.logger, 'warn')
+        .mockImplementation(() => undefined);
+      const verified = jest.fn();
+      await strategy.verify(token, verified, 3);
+      return { verified, warnSpy };
+    };
+
+    it('should verify the token when it has one of the required roles', async () => {
+      const { verified, warnSpy } = await verifyWithRoles(buildToken(payload));
+
+      expect(verified.mock.calls[0]).toEqual([null, {}, null]);
+      expect(mockCachingService.store).toBeCalledTimes(1);
+      expect(warnSpy).not.toBeCalled();
+    });
+
+    it('should forbid the token when it has none of the required roles', async () => {
+      const { verified, warnSpy } = await verifyWithRoles(
+        buildToken({
+          ...payload,
+          realm_access: { roles: ['offline_access', 'uma_authorization'] },
+        }),
+      );
+
+      expect(mockClient.introspect).toBeCalledTimes(1);
+      expect(verified.mock.calls[0][0]).toBeInstanceOf(ForbiddenException);
+      expect(verified.mock.calls[0].slice(1)).toEqual([null, null]);
+      expect(mockCachingService.store).toBeCalledTimes(0);
+      expect(warnSpy).toBeCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(payload.sub);
+      expect(warnSpy.mock.calls[0][0]).toContain('rw-role');
+    });
+
+    it('should forbid the token when it has no realm roles', async () => {
+      const { verified } = await verifyWithRoles(
+        buildToken({ sub: payload.sub }),
+      );
+
+      expect(verified.mock.calls[0][0]).toBeInstanceOf(ForbiddenException);
+      expect(mockCachingService.store).toBeCalledTimes(0);
+    });
+
+    it.each([
+      'opaque-token',
+      'a.not-json.c',
+      `a.${Buffer.from('1').toString('base64url')}.c`,
+    ])(
+      'should forbid a token whose payload cannot be decoded (%s)',
+      async (token) => {
+        const { verified } = await verifyWithRoles(token);
+
+        expect(verified.mock.calls[0][0]).toBeInstanceOf(ForbiddenException);
+        expect(mockCachingService.store).toBeCalledTimes(0);
+      },
+    );
   });
 });

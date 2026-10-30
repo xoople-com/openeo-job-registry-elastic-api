@@ -37,6 +37,13 @@ export const schema: convict.Schema<AppConfig> = {
       env: 'AUTH_TYPE',
       arg: 'auth_type',
     },
+    roles: {
+      doc: 'Comma separated list of roles. If set, the token must contain at least one of them in realm_access.roles. Empty disables the role check',
+      format: 'String',
+      default: '',
+      env: 'AUTH_ROLES',
+      arg: 'auth_roles',
+    },
     oidc: {
       issuer: {
         doc: 'OIDC issuer URL',

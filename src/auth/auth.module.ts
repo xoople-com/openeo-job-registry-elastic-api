@@ -15,7 +15,11 @@ const BearerStrategyFactory = {
     cachingService: CachingService,
   ) => {
     const client = await buildBearerClient(configService); // secret sauce! build the dynamic client before injecting it into the strategy for use in the constructor super call.
-    const strategy = new BearerStrategy(client, cachingService);
+    const roles = String(configService.get('auth.roles') ?? '')
+      .split(',')
+      .map((role) => role.trim())
+      .filter((role) => role.length > 0);
+    const strategy = new BearerStrategy(client, cachingService, roles);
     authService.setAuthClient(client);
     return strategy;
   },

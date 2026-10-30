@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-http-bearer';
 import { ConfigService } from '../../config/config/config.service';
@@ -35,11 +35,41 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
   logger: Logger;
   cachingService: CachingService;
 
-  constructor(client: Client, cachingService: CachingService) {
+  requiredRoles: string[];
+
+  constructor(
+    client: Client,
+    cachingService: CachingService,
+    requiredRoles: string[] = [],
+  ) {
     super({}, (token, verified) => this.verify(token, verified, 5));
     this.client = client;
     this.cachingService = cachingService;
+    this.requiredRoles = requiredRoles;
     this.logger = new Logger('BearerStrategy');
+  }
+
+  /**
+   * Decodes the JWT payload without verifying the signature. Only use this after
+   * the token has been confirmed active through introspection.
+   */
+  private decodePayload(token: string): any {
+    try {
+      const payload = JSON.parse(
+        Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
+      );
+      return payload && typeof payload === 'object' ? payload : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private hasRequiredRole(payload: any): boolean {
+    const roles = payload?.realm_access?.roles;
+    return (
+      Array.isArray(roles) &&
+      this.requiredRoles.some((role) => roles.includes(role))
+    );
   }
 
   private getCacheKey(token: string): string {
@@ -53,7 +83,7 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
   ) {
     const cacheKey = this.getCacheKey(token);
     const cachedResult = await this.cachingService.checkCache<{
-      error?: VERIFICATION_ERRORS;
+      error?: VERIFICATION_ERRORS | ForbiddenException;
       user?: any;
       info?: string;
     }>(cacheKey);
@@ -89,9 +119,11 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
     );
   }
 
-  public async introspectToken(
-    token: string,
-  ): Promise<{ error?: VERIFICATION_ERRORS; user?: any; info?: string }> {
+  public async introspectToken(token: string): Promise<{
+    error?: VERIFICATION_ERRORS | ForbiddenException;
+    user?: any;
+    info?: string;
+  }> {
     if (!this.client) {
       return {
         error: VERIFICATION_ERRORS.NO_CLIENT,
@@ -105,6 +137,22 @@ export class BearerStrategy extends PassportStrategy(Strategy, 'bearer') {
         );
         if (response.active) {
           this.logger.debug('Token is valid');
+          if (this.requiredRoles.length > 0) {
+            const payload = this.decodePayload(token);
+            if (!this.hasRequiredRole(payload)) {
+              this.logger.warn(
+                `Access denied for user ${payload.sub}
+                 : token has none of the required roles [${this.requiredRoles.join(
+                  ', ',
+                )}]`,
+              );
+              return {
+                error: new ForbiddenException(),
+                user: null,
+                info: null,
+              };
+            }
+          }
           return {
             error: null,
             user: {},
