@@ -5,6 +5,9 @@
   "author": "VITO",
   "private": false,
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "prebuild": "rimraf dist",
     "prestart": "rimraf dist",
@@ -13,7 +16,7 @@
     "start": "nest start | pino-pretty",
     "start:dev": "nest start --watch | pino-pretty",
     "start:debug": "nest start --debug --watch | pino-pretty",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -24,12 +27,11 @@
     "release": "semantic-release"
   },
   "dependencies": {
-    "@elastic/elasticsearch": "~7.17.14",
+    "@elastic/elasticsearch": "~9.5.1",
     "@nestjs/axios": "^1.0.0",
     "@nestjs/cache-manager": "^2.3.0",
     "@nestjs/common": "^9.1.6",
     "@nestjs/core": "^9.1.6",
-    "@nestjs/elasticsearch": "^9.0.0",
     "@nestjs/passport": "^9.0.0",
     "@nestjs/platform-express": "^9.1.6",
     "@nestjs/swagger": "^6.1.2",
@@ -43,6 +45,7 @@
     "convict-format-with-validator": "^6.2.0",
     "dotenv": "^16.0.3",
     "express-session": "^1.17.3",
+    "jose": "^5.10.0",
     "nestjs-pino": "^4.1.0",
     "openid-client": "^5.2.1",
     "passport": "^0.6.0",

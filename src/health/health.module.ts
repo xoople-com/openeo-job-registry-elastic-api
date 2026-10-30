@@ -6,10 +6,17 @@ import { HttpModule } from '@nestjs/axios';
 import { AuthIndicator } from './indicators/auth.indicator';
 import { AuthModule } from '../auth/auth.module';
 import { ElasticsearchIndicator } from './indicators/elasticsearch.indicator';
+import { DatabaseModule } from '../database/database.module';
 
 @Module({
   controllers: [HealthController],
-  imports: [HttpModule, TerminusModule, ConfigModule, AuthModule],
+  imports: [
+    HttpModule,
+    TerminusModule,
+    ConfigModule,
+    AuthModule,
+    DatabaseModule,
+  ],
   providers: [AuthIndicator, ElasticsearchIndicator, Logger],
 })
 export class HealthModule {}

@@ -26,6 +26,18 @@ import { APP_GUARD } from '@nestjs/core';
         return {
           level: config.get('general.loglevel'),
           pinoHttp: {
+            serializers: {
+              req: (req) => ({
+                id: req.id,
+                method: req.method,
+                url: req.url?.split('?')[0],
+              }),
+            },
+            redact: [
+              'req.headers.authorization',
+              'req.headers.cookie',
+              'res.headers["set-cookie"]',
+            ],
             level: config.get('general.loglevel'),
             genReqId: (request) =>
               request.headers['x-correlation-id'] || uuidv4(),
