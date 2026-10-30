@@ -59,15 +59,6 @@ describe('DatabaseModule', () => {
     ).toThrow('DB_API_KEY is required');
   });
 
-  it('fails explicitly when a configured CA file cannot be read', () => {
-    expect(() =>
-      options({
-        'database.hosts': 'https://one.example',
-        'database.caFile': '/nonexistent/ejr-ca.pem',
-      }),
-    ).toThrow();
-  });
-
   it('closes the client on shutdown', async () => {
     const module = await Test.createTestingModule({
       imports: [DatabaseModule],

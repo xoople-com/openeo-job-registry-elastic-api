@@ -42,8 +42,8 @@ Its value is the **encoded** Elasticsearch data-plane API key, not an Elastic
 Cloud control-plane key or an Azure access token. Do not put credentials in
 `DB_HOSTS`, command arguments, configuration committed to Git, or log output.
 API-key authentication requires HTTPS for every host; certificate verification
-cannot be disabled. Publicly trusted certificates use Node's default trusted CA
-bundle; `DB_CA_FILE` optionally points to a mounted PEM CA bundle.
+cannot be disabled. Elastic Cloud's publicly trusted certificates use Node's
+default trusted CA bundle; no application-specific custom-CA option is provided.
 
 `ENTRA_AUDIENCE` must match the actual access-token `aud` claim. For Entra v2 this
 is normally the API application UUID, **not** its `api://...` Application ID URI

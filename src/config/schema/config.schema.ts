@@ -124,12 +124,6 @@ export const schema: convict.Schema<AppConfig> = {
       env: 'DB_API_KEY',
       sensitive: true,
     },
-    caFile: {
-      doc: 'Optional PEM CA bundle path for Elasticsearch TLS',
-      format: 'String',
-      default: '',
-      env: 'DB_CA_FILE',
-    },
   },
   cache: {
     ttl: {
