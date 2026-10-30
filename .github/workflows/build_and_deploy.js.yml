@@ -5,9 +5,9 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [ "main", "sync_main" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "sync_main" ]
+    branches: [ "main" ]
   workflow_dispatch:
     branches: [ "main" ]
 env:
