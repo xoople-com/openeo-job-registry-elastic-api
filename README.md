@@ -26,6 +26,33 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## Job registry API contracts
+
+The existing `/jobs` endpoints retain their Elasticsearch-query contract.
+An additive backend-neutral API is available at
+`/v2/jobs`; callers explicitly select the contract by URL.
+Create bodies include `backend_id`. Other CRUD routes use globally unique job
+IDs. Dedicated POST listings with JSON bodies cover user jobs (`/v2/jobs/user`), active jobs
+(`/v2/jobs/active`) and cleanup candidates (`/v2/jobs/cleanup-candidates`).
+Listings span backends unless `backend_id` is supplied. All listings accept optional
+`max_age` and `max_updated_ago` filters. These
+are day counts; their cutoffs remain fixed across pages. Responses include a
+structured `next_page` continuation to resend in the next request body. There is no
+public v2 generic search endpoint.
+Both currently use the same Elasticsearch index. See the
+[domain API design and migration guide](docs/domain-api.md) for typed filters,
+CRUD, pagination, storage adapter boundaries and compatibility limits.
+Shared behavior lives in `JobRegistryService`; `JobStore` adapters implement
+atomic create/read/conditional replacement and typed searches.
+V2 uses globally unique job IDs as document IDs, replayable creation and
+ETag/If-Match conditional writes. Creating an existing job in the same backend
+returns its current state without overwriting it only when the submitted body
+matches the original creation input; different input returns 409. Only a creation
+fingerprint is retained, not response history. Mutation retries with stale ETags
+return 412.
+Existing random/hashed-ID records
+require explicit migration before v2 direct access; legacy routes are unchanged.
+
 ## Installation
 
 ```bash

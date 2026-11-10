@@ -5,10 +5,13 @@ import { ConfigModule } from '../config/config.module';
 import { ConfigService } from '../config/config/config.service';
 import { DatabaseService } from './services/database/database.service';
 import { CachingModule } from '../caching/caching.module';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { JobsController as JobsV2Controller } from './controllers/jobs-v2/jobs-v2.controller';
+import { JobStore } from './stores/job-store';
+import { ElasticsearchJobStore } from './stores/elasticsearch-job-store';
+import { JobRegistryService } from './services/job-registry.service';
 
 @Module({
-  controllers: [JobsController],
+  controllers: [JobsController, JobsV2Controller],
   imports: [
     ConfigModule,
     CachingModule,
@@ -23,6 +26,11 @@ import { ThrottlerModule } from '@nestjs/throttler';
       inject: [ConfigService],
     }),
   ],
-  providers: [DatabaseService, Logger],
+  providers: [
+    DatabaseService,
+    JobRegistryService,
+    Logger,
+    { provide: JobStore, useClass: ElasticsearchJobStore },
+  ],
 })
 export class JobsModule {}
